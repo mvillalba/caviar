@@ -1,0 +1,2 @@
+options: {license: mit, name: caviar}
+project: {name: caviar, type: go}
