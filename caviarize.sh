@@ -13,12 +13,16 @@ function caviarpatch {
 
     # Who needs patching?
     PATCHLIST=`find -name '*.go' -exec grep -il 'os.Open' {} \;`
+    PATCHLIST="{$PATCHLIST}\n`find -name '*.go' -exec grep -il 'os.File' {} \;`"
 
     # Patch'em
     while IFS= read -r line
     do
+        echo "PATCH" $line
         sed -i 's/os\.Open/caviar\.Open/g' $line
-        sed -i 's/"os"/"os"\n\t"github.com/mvillalba/caviar"/g' $line
+        sed -i 's/\*os\.File/caviar\.File/g' $line
+        sed -i 's/os\.File/caviar\.File/g' $line
+        sed -i 's/"os"/"os"\n\t"github.com\/mvillalba\/caviar"/g' $line
         echo "" >> $line
         echo "// Bypass unused-imports problem (remove if this is your own code)" >> $line
         echo "var _ = os.Open" >> $line
@@ -29,7 +33,10 @@ function caviarpatch {
 PKGLIST=`go get -v -d -u $PKG | awk '{ print $1 }'`
 while IFS= read -r line
 do
-    caviarpatch $line
+    echo $line
+# FIXME: Broken, let's ignore dependencies
+#    caviarpatch $line
+    caviarpatch $PKG
 done <<< "${PKGLIST}"
 
 # Install $PKG and dependencies

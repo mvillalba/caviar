@@ -6,6 +6,9 @@ resources/assets that you would normally deploy along with your executable into
 a custom ZIP file which will then bundled with your program's executable (or
 not, your choice).
 
+NOTE: UNDER DEVELOPMENT. NOT READY FOR PRIMETIME.
+
+
 Install
 -------
 Just run:
