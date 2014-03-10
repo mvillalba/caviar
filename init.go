@@ -9,6 +9,7 @@ import (
     "io"
     "io/ioutil"
     "errors"
+    "time"
 )
 
 type caviarState struct {
@@ -33,7 +34,7 @@ type directoryInfo struct {
 }
 
 type fileDescriptor struct {
-    info        *fileInfo
+    file        *fileInfo
     position    uint
 }
 
@@ -41,12 +42,22 @@ const DESCRIPTOR_FLOOR = 42000000
 
 // Global state
 var state caviarState
+var cavinit = false
+var bypass = true
+var modtime = time.Now()
+var assetpath = ""
 
 // Where all the magic happens
 func Init() (int, error) {
     // Mutexes for the greater good.
     state.mu.Lock()
     defer state.mu.Unlock()
+
+    // Setup global state
+    var err error
+    cavinit = true
+    assetpath, err = osext.ExecutableFolder()
+    if err != nil { return len(state.assets), err }
 
     // Load ZIP container
     path, err := osext.Executable()
@@ -79,6 +90,10 @@ func Init() (int, error) {
     // Process manifest
     count, err := processManifest(&manifest, &state.root)
     if err != nil { return len(state.assets), err }
+    // BEGIN HACK
+    state.root.files = state.root.directories[0].files
+    state.root.directories = state.root.directories[0].directories
+    // END HACK
 
     if count != len(state.assets) {
         errstr := "Asset payload size (%v) differs from manifest tally (%v)."
@@ -87,7 +102,7 @@ func Init() (int, error) {
         return len(state.assets), errors.New(errstr)
     }
 
-fmt.Println("%+v", state.root)
+    bypass = false
     return len(state.assets), nil
 }
 

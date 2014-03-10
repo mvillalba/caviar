@@ -155,7 +155,7 @@ func main() {
     var fp *os.File
     if args.detached {
         path = caviar.DetachedName(path)
-        fp, err = os.OpenFile(path, os.O_WRONLY | os.O_CREATE, 0664)
+        fp, err = os.OpenFile(path, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0664)
     } else {
         fp, err = os.OpenFile(path, os.O_WRONLY | os.O_APPEND, 0664)
     }

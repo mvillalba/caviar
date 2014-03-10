@@ -20,6 +20,11 @@ Converting your program to use Caviar is very straightforward, just import
 caviar.Open/OpenFile, call caviar.Init() early inside your main() function,
 and run the bundled `cavundle` utility on your compiled executables. That's it.
 
+NOTE: If you don't call caviar.Init() yourself, it will be automatically called
+the first time caviar.Open/OpenFile is called, but it's better if you call it
+manually as caviar.Init() takes some time to run and may cause your program to
+freeze up for a bit.
+
 During runtime, Caviar will attempt to load bundled resources from the running
 executable and failing tham from a detached container (executable-name.cvr).
 
@@ -34,8 +39,12 @@ dependencies) to load their files via Caviar's API like this:
 
  $ caviarize github.com/revel/revel
 
-There is an example toy Web app in the examples directory if this is not
-completely clear.
+See the examples directory for a handful of working toy program examples.
+
+NOTE: Caviar is designed with long-running processes (such as Web apps) that
+need to have quick access to their assets/resources in mind and this has some
+consequences. Namely, Caviar will load all assets to RAM on startup and it will
+keep them there.
 
 NOTE: This is an early version of Caviar and no cross-platform testing has been
 done. It works on Linux (and probably other *nix variants), but using it on
@@ -56,9 +65,9 @@ TODO
    to implement a clean-up function to be run when the program exits!
  * Support for a custom, dead-simple binary format to replace ZIP files (Go's
    Zips don't support writing uncompressed data and TARs don't feel like a good
-   fit. The replacement format would be as follows:
+   replacement. The replacement format would be as follows:
    [EXECUTABLE][MAGIC-1][MANIFEST][ASSETS][MANIFEST-LEN][ASSETS-LEN][MAGIC-2]
-   So reading it is a simple matter of:
+   Reading it is a simple matter of:
     1. Read and verify MAGIC-2.
     2. Add ASSETS-LEN and MANIFEST-LEN and use them to calculate start offset
        of Caviar container (MAGIC-1 start).
@@ -79,4 +88,24 @@ TODO
  * Cross-platform support.
  * Some functions in the "os" file-related API return an os.PathError instead
    of an error type. Caviar should mimick this behavior.
-
+ * Practical examples.
+ * Tests, tests, tests.
+ * Preserve metadata other than the file name. I'm thinking creation time,
+   modification time, and permission bits.
+ * Handle absolute paths better in caviarOpen(). At the moment, any absolute
+   path must match the path string returned by osext.ExecutableFolder() exactly
+   to be considered to be inside the asset root path, so something like
+   '/home/martin/wks/../go/myprogram/data.bin' will be passed to os.Open (and
+   error out with a file not found error) while
+   '/home/martin/wks/go/myprogram/data.bin' will succeed.
+ * The code needs a general clean-up, but fo it after mostly everything else on
+   this list has been implemented.
+ * Can't be bothered now, but there is a hack (find “BEGIN HACK”) in init.go
+   to patch a bug somewhere (probably in processManifest() or cavundle) that
+   creates a sort of pseuso-root dir in state.assets that's kinda broken.
+ * Invoking cavundle with multiple paths that contain files and/or directories
+   with repeated names (i.e revel/README, martini/README, etc.) and
+   cherrypicking disabled is likely broken. Fix it.
+ * Implement a Caviar FS walk function to shadow path/filepath.Walk().
+ * There is a bit of a type casting mess. Make everything use int64 and be done
+   with it.

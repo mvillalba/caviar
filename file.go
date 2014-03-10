@@ -3,8 +3,13 @@ package caviar
 import (
     "io"
     "os"
+    "strings"
+    "path"
     "errors"
+    "time"
 )
+
+const READ_MAX = 1024 * 32 // 32 KiB
 
 // In-memory file
 type CaviarFile struct {
@@ -32,17 +37,129 @@ type File interface {
     Readdirnames(n int) (names []string, err error)
 }
 
+func caviarOpen(name string, flag int, perm os.FileMode, short bool) (f File, err error) {
+    // Locking for the greater good
+    state.mu.Lock()
+    defer state.mu.Unlock()
+
+    found := false
+    npath := name
+    var file *fileInfo
+
+    // Turn relative paths to absolute paths
+    if !strings.HasPrefix(npath, "/") {
+        cwd, err := os.Getwd()
+        if err != nil { return f, err }
+        npath = path.Join(cwd, npath)
+    }
+
+    if strings.HasPrefix(npath, assetpath) {
+        // Convert matching absolute paths back to relative paths
+        npath = npath[len(assetpath):]
+
+        // Attempt to resolve path down to a fileInfo instance
+        file, err = findAsset(name, npath)
+        if err != nil {
+            found = false
+        } else {
+            found = true
+        }
+    }
+
+    if !found {
+        if short {
+            return os.Open(name)
+        } else {
+            return os.OpenFile(name, flag, perm)
+        }
+    }
+
+    fd := mkfd()
+    state.descriptors[fd] = new(fileDescriptor)
+    state.descriptors[fd].file = file
+    state.descriptors[fd].position = 0 // Just in case.
+
+    return &CaviarFile{ uint(fd) }, nil
+}
+
+// Call this function after acquiring the global state mutex!
+func mkfd() int {
+    for i, entry := range state.descriptors {
+        if entry == nil { return i }
+    }
+    state.descriptors = append(state.descriptors, nil)
+    return len(state.descriptors) - 1
+}
+
+// Call this function after acquiring the global state mutex!
+func findAsset(name, npath string) (file *fileInfo, err error) {
+    segments := strings.Split(npath, "/")
+    filename := segments[len(segments)-1]
+    segments = segments[:len(segments)-1]
+
+    curdir := &state.root
+    for _, segment := range segments {
+        if segment == "." { continue }
+        if segment == ".." {
+            if curdir.parent != nil {
+                curdir = curdir.parent
+                continue
+            } else {
+                return file, errors.New("Caviar file not found: " + name)
+            }
+        }
+        for i, dir := range curdir.directories {
+            if dir.name == segment {
+                curdir = &curdir.directories[i]
+                continue
+            }
+        }
+        return file, errors.New("Caviar file not found: " + name)
+    }
+
+    for i, entry := range curdir.files {
+        if entry.name == filename {
+            return &curdir.files[i], nil
+        }
+    }
+
+    return file, errors.New("Caviar file not found: " + name)
+}
+
 func Open(name string) (file File, err error) {
-    return &CaviarFile{}, nil // TODO
+    if !cavinit { Init() }
+    if bypass { return os.Open(name) }
+    return caviarOpen(name, 0, 0, true)
 }
 
 func OpenFile(name string, flag int, perm os.FileMode) (file File, err error) {
-    return os.OpenFile(name, flag, perm) // TODO
+    if !cavinit { Init() }
+    if bypass { return os.OpenFile(name, flag, perm) }
+    return caviarOpen(name, flag, perm, false)
 }
 
 // io.Reader
 func (f *CaviarFile) Read(b []byte) (n int, err error) {
-    return n, nil // TODO
+    // How to avoid this…?
+    state.mu.Lock()
+    defer state.mu.Unlock()
+
+    // How much are we going to read?
+    n = len(b)
+    l := int(state.descriptors[f.fd].file.size - state.descriptors[f.fd].position)
+    if n > READ_MAX { n = READ_MAX }
+    if n > l { n = l }
+    if n == 0 { return 0, io.EOF }
+
+    // Make the copy
+    start := state.descriptors[f.fd].file.offset + state.descriptors[f.fd].position
+    end := int(start) + n
+    copy(b, state.assets[start:end])
+
+    // Update FD position
+    state.descriptors[f.fd].position += uint(n)
+
+    return n, nil
 }
 
 // io.ReaderAt
@@ -64,21 +181,82 @@ func (f *CaviarFile) WriteAt(b []byte, off int64) (int, error) {
 
 // io.Seeker
 func (f *CaviarFile) Seek(offset int64, whence int) (ret int64, err error) {
-    return ret, nil // TODO
+    // Lock'em up
+    state.mu.Lock()
+    defer state.mu.Unlock()
+
+    if whence == 0 {
+        state.descriptors[f.fd].position = uint(offset)
+    } else if whence == 1 {
+        state.descriptors[f.fd].position += uint(offset)
+        if state.descriptors[f.fd].file.size < state.descriptors[f.fd].position {
+            state.descriptors[f.fd].position = state.descriptors[f.fd].file.size
+        }
+    } else if whence == 2 {
+        state.descriptors[f.fd].position = uint(offset) + state.descriptors[f.fd].file.size
+    }
+
+    return int64(state.descriptors[f.fd].position), nil
 }
 
 // io.Closer
 func (f *CaviarFile) Close() error {
-    return nil // TODO
+    state.mu.Lock()
+    defer state.mu.Unlock()
+
+    if state.descriptors[f.fd] == nil {
+        return errors.New("File already closed.")
+    }
+
+    state.descriptors[f.fd] = nil
+    return nil
+}
+
+// os.FileInfo
+type CaviarFileInformer struct {
+    file        *fileInfo
+}
+
+func (fi *CaviarFileInformer) Name() string {
+    // Files are read-only and untouched after Init() returns so no locking is
+    // needed :-).
+    return fi.file.name
+}
+
+func (fi *CaviarFileInformer) Size() int64 {
+    // Files are read-only and untouched after Init() returns so no locking is
+    // needed :-).
+    return int64(fi.file.size)
+}
+
+func (fi *CaviarFileInformer) Mode() os.FileMode {
+    return 0664;
+}
+
+func (fi *CaviarFileInformer) ModTime() time.Time {
+    return modtime
+}
+
+func (fi *CaviarFileInformer) IsDir() bool {
+    return fi.Mode().IsDir()
+}
+
+func (fi *CaviarFileInformer) Sys() interface{} {
+    return nil
 }
 
 // os.File
 func (f *CaviarFile) Stat() (fi os.FileInfo, err error) {
-    return fi, nil // TODO
+    state.mu.Lock()
+    defer state.mu.Unlock()
+
+    return &CaviarFileInformer{ state.descriptors[f.fd].file }, nil
 }
 
 func (f *CaviarFile) Name() string {
-    return "caviar_is_yummy.go" // TODO
+    state.mu.Lock()
+    defer state.mu.Unlock()
+    return state.descriptors[f.fd].file.name
 }
 
 func (f *CaviarFile) Chdir() error {
