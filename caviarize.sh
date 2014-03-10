@@ -18,7 +18,7 @@ function caviarpatch {
     while IFS= read -r line
     do
         sed -i 's/os\.Open/caviar\.Open/g' $line
-        sed -i 's/"os"/"os"\n\t"caviar"/g' $line
+        sed -i 's/"os"/"os"\n\t"github.com/mvillalba/caviar"/g' $line
         echo "" >> $line
         echo "// Bypass unused-imports problem (remove if this is your own code)" >> $line
         echo "var _ = os.Open" >> $line

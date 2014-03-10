@@ -10,7 +10,7 @@ import (
     "log"
     "bytes"
     "encoding/gob"
-    "caviar"
+    "github.com/mvillalba/caviar"
     "io/ioutil"
     "strings"
     "errors"

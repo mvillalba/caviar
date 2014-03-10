@@ -1,12 +1,59 @@
 Caviar
 ======
 
+Caviar is a resource packer for Go. It will essentially pack a bunch of
+resources/assets that you would normally deploy along with your executable into
+a custom ZIP file which will then bundled with your program's executable (or
+not, your choice).
+
+Install
+-------
+Just run:
+
+ $ go get github.com/mvillalba/caviar{,/caviarize,/cavundle}
+
+
+Usage
+-----
+Converting your program to use Caviar is very straightforward, just import
+"github.com/mvillalba/caviar", change any calls to os.Open/OpenFile to
+caviar.Open/OpenFile, call caviar.Init() early inside your main() function,
+and run the bundled `cavundle` utility on your compiled executables. That's it.
+
+During runtime, Caviar will attempt to load bundled resources from the running
+executable and failing tham from a detached container (executable-name.cvr).
+
+Your program will still run even if a suitable container could not be loaded.
+Caviar will simply pass through your Open/OpenFile calls to the os package
+transparently. This is very useful for development.
+
+Got dependencies that need to read various files and won't take an io.Reader
+(I'm looking at you, Revel framework)? You can use the bundled tool
+`caviarize` which will attempt to automatically patch any package (and all its
+dependencies) to load their files via Caviar's API like this:
+
+ $ caviarize github.com/revel/revel
+
+There is an example toy Web app in the examples directory if this is not
+completely clear.
+
+NOTE: This is an early version of Caviar and no cross-platform testing has been
+done. It works on Linux (and probably other *nix variants), but using it on
+Windows will likely require some work (case-insensitive matches, possible
+hard-coded paths, etc.). You are welcome to submit a patch.
+
+
+Contact
+-------
+Martín Raúl Villalba <martin@martinvillalba.com>
+http://www.martinvillalba.com/
+
 
 TODO
 ----
- * Support for detached zip files.
  * Support for unpacking to a TMP dir instead of RAM (for things like Gtk where
-   we depend on C libraries that can't be converted with caviarize).
+   we depend on C libraries that can't be patched with caviarize). Don't forget
+   to implement a clean-up function to be run when the program exits!
  * Support for a custom, dead-simple binary format to replace ZIP files (Go's
    Zips don't support writing uncompressed data and TARs don't feel like a good
    fit. The replacement format would be as follows:
@@ -30,4 +77,6 @@ TODO
    NORM     MANIFEST (NONE), ASSETS (DEFLATE)
  * Make the manifest use Protocol Buffers instead of Gob.
  * Cross-platform support.
+ * Some functions in the "os" file-related API return an os.PathError instead
+   of an error type. Caviar should mimick this behavior.
 
