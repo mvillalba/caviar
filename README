@@ -112,3 +112,6 @@ TODO
  * Implement a Caviar FS walk function to shadow path/filepath.Walk().
  * There is a bit of a type casting mess. Make everything use int64 and be done
    with it.
+ * Implement
+ * Get auxiliary os methods working (Stat, Lstat, etc.).
+ * Make Revel work.
