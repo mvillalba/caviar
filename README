@@ -1,3 +1,33 @@
 Caviar
 ======
 
+
+TODO
+----
+ * Support for detached zip files.
+ * Support for unpacking to a TMP dir instead of RAM (for things like Gtk where
+   we depend on C libraries that can't be converted with caviarize).
+ * Support for a custom, dead-simple binary format to replace ZIP files (Go's
+   Zips don't support writing uncompressed data and TARs don't feel like a good
+   fit. The replacement format would be as follows:
+   [EXECUTABLE][MAGIC-1][MANIFEST][ASSETS][MANIFEST-LEN][ASSETS-LEN][MAGIC-2]
+   So reading it is a simple matter of:
+    1. Read and verify MAGIC-2.
+    2. Add ASSETS-LEN and MANIFEST-LEN and use them to calculate start offset
+       of Caviar container (MAGIC-1 start).
+    3. Read and verify MAGIC-1.
+    4. Read both MANIFEST and ASSETS.
+    5. Store ASSETS.
+    6. Process MANIFEST.
+   I may optionally consider adding a FLAGS byte somewhere to specify the
+   compression algorithm used for MANIFEST and ASSETS. Options will probably be
+   DEFLATE, GZIP, and NONE.
+   No format versioning or backwards compatibility is needed as it's assumed
+   the running version of Caviar will both be producing the asset bundle and
+   reading it during runtime. The supported optimization profiles could be:
+   FAST     MANIFEST (NONE), ASSETS (NONE)
+   TINY     MANIFEST (GZIP), ASSETS (GZIP)
+   NORM     MANIFEST (NONE), ASSETS (DEFLATE)
+ * Make the manifest use Protocol Buffers instead of Gob.
+ * Cross-platform support.
+
