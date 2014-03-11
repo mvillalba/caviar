@@ -35,6 +35,7 @@ type directoryInfo struct {
 
 type fileDescriptor struct {
     file        *fileInfo
+    directory   *directoryInfo
     position    uint
 }
 

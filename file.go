@@ -45,6 +45,7 @@ func caviarOpen(name string, flag int, perm os.FileMode, short bool) (f File, er
     found := false
     npath := name
     var file *fileInfo
+    var dirinfo *directoryInfo
 
     // Turn relative paths to absolute paths
     if !strings.HasPrefix(npath, "/") {
@@ -58,7 +59,7 @@ func caviarOpen(name string, flag int, perm os.FileMode, short bool) (f File, er
         npath = npath[len(assetpath):]
 
         // Attempt to resolve path down to a fileInfo instance
-        file, err = findAsset(name, npath)
+        file, dirinfo, err = findAsset(name, npath)
         if err != nil {
             found = false
         } else {
@@ -77,6 +78,7 @@ func caviarOpen(name string, flag int, perm os.FileMode, short bool) (f File, er
     fd := mkfd()
     state.descriptors[fd] = new(fileDescriptor)
     state.descriptors[fd].file = file
+    state.descriptors[fd].directory = dirinfo
     state.descriptors[fd].position = 0 // Just in case.
 
     return &CaviarFile{ uint(fd) }, nil
@@ -92,11 +94,15 @@ func mkfd() int {
 }
 
 // Call this function after acquiring the global state mutex!
-func findAsset(name, npath string) (file *fileInfo, err error) {
+func findAsset(name, npath string) (file *fileInfo, dirinfo *directoryInfo, err error) {
     segments := strings.Split(npath, "/")
-    filename := segments[len(segments)-1]
+    fileordir := segments[len(segments)-1]
     segments = segments[:len(segments)-1]
 
+    // TODO: should handle opening the asset root directly and merge with os
+    // output if needed.
+
+    // Find directory
     curdir := &state.root
     for _, segment := range segments {
         if segment == "." { continue }
@@ -105,7 +111,7 @@ func findAsset(name, npath string) (file *fileInfo, err error) {
                 curdir = curdir.parent
                 continue
             } else {
-                return file, errors.New("Caviar file not found: " + name)
+                return file, dirinfo, errors.New("Caviar file not found: " + name)
             }
         }
         for i, dir := range curdir.directories {
@@ -114,16 +120,25 @@ func findAsset(name, npath string) (file *fileInfo, err error) {
                 continue
             }
         }
-        return file, errors.New("Caviar file not found: " + name)
+        return file, dirinfo, errors.New("Caviar file not found: " + name)
     }
 
+    // Is it a file?
     for i, entry := range curdir.files {
-        if entry.name == filename {
-            return &curdir.files[i], nil
+        if entry.name == fileordir {
+            return &curdir.files[i], nil, nil
         }
     }
 
-    return file, errors.New("Caviar file not found: " + name)
+    // Is it a directory?
+    for i, entry := range curdir.directories {
+        // TODO: handle '.' and '..'?
+        if entry.name == fileordir {
+            return nil, &curdir.directories[i], nil
+        }
+    }
+
+    return file, dirinfo, errors.New("Caviar file not found: " + name)
 }
 
 func Open(name string) (file File, err error) {
@@ -143,6 +158,11 @@ func (f *CaviarFile) Read(b []byte) (n int, err error) {
     // How to avoid this…?
     state.mu.Lock()
     defer state.mu.Unlock()
+
+    // Is it a dir?
+    if state.descriptors[f.fd].file == nil {
+        return 0, errors.New("Can't read data from a directory.")
+    }
 
     // How much are we going to read?
     n = len(b)
@@ -164,7 +184,7 @@ func (f *CaviarFile) Read(b []byte) (n int, err error) {
 
 // io.ReaderAt
 func (f *CaviarFile) ReadAt(b []byte, off int64) (n int, err error) {
-    return n, nil // TODO
+    return n, errors.New("Not Implemented: ReadAt()") // TODO
 }
 
 // io.Writer
@@ -184,6 +204,11 @@ func (f *CaviarFile) Seek(offset int64, whence int) (ret int64, err error) {
     // Lock'em up
     state.mu.Lock()
     defer state.mu.Unlock()
+
+    // Is it a dir?
+    if state.descriptors[f.fd].file == nil {
+        return 0, errors.New("Can't seek through a directory.")
+    }
 
     if whence == 0 {
         state.descriptors[f.fd].position = uint(offset)
@@ -213,35 +238,46 @@ func (f *CaviarFile) Close() error {
 }
 
 // os.FileInfo
-type CaviarFileInformer struct {
+type CaviarFileInfo struct {
     file        *fileInfo
+    directory   *directoryInfo
 }
 
-func (fi *CaviarFileInformer) Name() string {
+func (fi *CaviarFileInfo) Name() string {
     // Files are read-only and untouched after Init() returns so no locking is
     // needed :-).
+    if fi.file == nil {
+        return fi.directory.name
+    }
     return fi.file.name
 }
 
-func (fi *CaviarFileInformer) Size() int64 {
+func (fi *CaviarFileInfo) Size() int64 {
     // Files are read-only and untouched after Init() returns so no locking is
     // needed :-).
+    if fi.file == nil {
+        return 0
+    }
     return int64(fi.file.size)
 }
 
-func (fi *CaviarFileInformer) Mode() os.FileMode {
-    return 0664;
+func (fi *CaviarFileInfo) Mode() os.FileMode {
+    chmod := os.FileMode(0664)
+    if fi.file == nil {
+        return os.ModeDir | chmod
+    }
+    return chmod
 }
 
-func (fi *CaviarFileInformer) ModTime() time.Time {
+func (fi *CaviarFileInfo) ModTime() time.Time {
     return modtime
 }
 
-func (fi *CaviarFileInformer) IsDir() bool {
+func (fi *CaviarFileInfo) IsDir() bool {
     return fi.Mode().IsDir()
 }
 
-func (fi *CaviarFileInformer) Sys() interface{} {
+func (fi *CaviarFileInfo) Sys() interface{} {
     return nil
 }
 
@@ -250,12 +286,17 @@ func (f *CaviarFile) Stat() (fi os.FileInfo, err error) {
     state.mu.Lock()
     defer state.mu.Unlock()
 
-    return &CaviarFileInformer{ state.descriptors[f.fd].file }, nil
+    return &CaviarFileInfo{ state.descriptors[f.fd].file,
+                            state.descriptors[f.fd].directory }, nil
 }
 
 func (f *CaviarFile) Name() string {
     state.mu.Lock()
     defer state.mu.Unlock()
+
+    if state.descriptors[f.fd].file == nil {
+        return state.descriptors[f.fd].directory.name
+    }
     return state.descriptors[f.fd].file.name
 }
 
@@ -289,9 +330,9 @@ func (f *CaviarFile) Chown(uid, gid int) error {
 }
 
 func (f *CaviarFile) Readdir(n int) (fi []os.FileInfo, err error) {
-    return fi, nil // TODO
+    return fi, errors.New("Not Implemented: Readdir().") // TODO
 }
 
 func (f *CaviarFile) Readdirnames(n int) (names []string, err error) {
-    return names, nil // TODO
+    return names, errors.New("Not Implemented: Readdir().") // TODO
 }

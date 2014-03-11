@@ -115,3 +115,5 @@ TODO
  * Implement
  * Get auxiliary os methods working (Stat, Lstat, etc.).
  * Make Revel work.
+ * Make Martini work.
+ * Allow directories to be open (Martini seems to need this).
