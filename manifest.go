@@ -78,7 +78,8 @@ type Object struct {
     Offset      int64
     // CRC32 checksum for the file's contents. Set to 0 for directories.
     Checksum    uint32
-    // Child objects (sub-directories
+    // Child objects (sub-directories and contained files). File objects must
+    // not have any children.
     Objects     []Object
 }
 
@@ -88,32 +89,36 @@ func verifyManifest() (error) {
     if state.manifest.Magic != MANIFEST_MAGIC {
         errstr := "Container has invalid magic value (expected %v, got %v)."
         errstr = fmt.Sprintf(errstr, MANIFEST_MAGIC, state.manifest.Magic)
-        return errors.New(errstr)
+        return debug(errors.New(errstr))
     }
 
     // Verify asset root name tag magic
     if state.manifest.ObjectRoot.Name != OBJECTROOT_MAGIC {
         errstr := "Container has invalid magic value (expected %v, got %v)."
         errstr = fmt.Sprintf(errstr, OBJECTROOT_MAGIC, state.manifest.ObjectRoot.Name)
-        return errors.New(errstr)
+        return debug(errors.New(errstr))
     }
 
     // Verify options
     emode := state.manifest.Options.ExtractionMode
     if emode != EXTRACT_MEMORY && emode != EXTRACT_TEMP && emode != EXTRACT_EXECUTABLE {
-        return errors.New("Bundle specifies unknown extraction mode.")
+        return debug(errors.New("Bundle specifies unknown extraction mode."))
     }
 
     // Verify object tree
+    if !state.manifest.ObjectRoot.ModeBits.IsDir() {
+        return debug(errors.New("Root Object must be a directory."))
+    }
+
     count, err := verifyObject(&state.manifest.ObjectRoot)
-    if err != nil { return err }
+    if err != nil { return debug(err) }
 
     // Verify loaded byte count
     if count != int64(len(state.assets)) {
         errstr := "Asset payload size (%v) differs from manifest tally (%v)."
         errstr += " Something is really, really wrong."
         errstr = fmt.Sprintf(errstr, len(state.assets), count)
-        return errors.New(errstr)
+        return debug(errors.New(errstr))
     }
 
     return nil
@@ -124,21 +129,24 @@ func verifyObject(obj *Object) (count int64, err error) {
     // Directory?
     if obj.ModeBits.IsDir() {
         if obj.Size != 0 || obj.Offset != 0 || obj.Checksum != 0 {
-            return 0, errors.New("Directory object does not pass all sanity checks.")
+            return 0, debug(errors.New("Directory object does not pass all sanity checks."))
         }
     } else {
         // File
         if obj.Size == 0 {
             if obj.Offset != 0 || obj.Checksum != 0 {
-                return 0, errors.New("File object does not pass all sanity checks.")
+                return 0, debug(errors.New("File object does not pass all sanity checks."))
             }
         } else {
+            if len(obj.Objects) != 0 {
+                return 0, debug(errors.New("File object does not pass all sanity checks."))
+            }
             data, err := getPayload(obj)
             if err != nil { return 0, err }
             h := crc32.NewIEEE()
             h.Write(data)
             if obj.Checksum != h.Sum32() {
-                return 0, errors.New("Checksum error.")
+                return 0, debug(errors.New("Checksum error."))
             }
             count += obj.Size
         }
@@ -147,7 +155,7 @@ func verifyObject(obj *Object) (count int64, err error) {
     // Verify child objects
     for i := 0; i < len(obj.Objects); i++ {
         bytes, err := verifyObject(&obj.Objects[i])
-        if err != nil { return 0, err }
+        if err != nil { return 0, debug(err) }
         count += bytes
     }
 

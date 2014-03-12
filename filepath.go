@@ -9,5 +9,9 @@ import (
 )
 
 func Walk(root string, walkFn filepath.WalkFunc) error {
-    return errors.New("Walk(): Not Implemented.") // TODO
+    return debug(errors.New("Walk(): Not Implemented.")) // TODO
+}
+
+func Glob(pattern string) (matches []string, err error) {
+    return debug(errors.New("Glob(): Not Implemented.")) // TODO
 }

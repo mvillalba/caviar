@@ -3,12 +3,13 @@
 package caviar
 
 import (
-    "path"
     "log"
     "errors"
     "strings"
     "time"
     "os"
+    "path"
+    "path/filepath"
 )
 
 // File extension for Caviar containers.
@@ -31,10 +32,10 @@ func PayloadSize() int64 {
 // Given a file Object, return a (zero-copy) slice containing the object's data.
 func getPayload(obj *Object) ([]byte, error) {
     if obj.ModeBits.IsDir() {
-        return nil, errors.New("Directories have no payload!")
+        return nil, debug(errors.New("Directories have no payload!"))
     }
     if obj.Size == 0 {
-        return nil, errors.New("The file is empty!")
+        return nil, debug(errors.New("The file is empty!"))
     }
     return state.assets[obj.Offset:obj.Offset+obj.Size], nil
 }
@@ -44,105 +45,64 @@ func isDebug() bool {
     return state.manifest.Options.Debug
 }
 
-func debug(message string) {
+func debug(v interface{}) error {
     if isDebug() {
-        log.Print(message)
+        log.Print(v)
     }
+    if err, ok := v.(error); ok { return err }
+    if err, ok := v.(string); ok { return errors.New(err) }
+    return errors.New("debug(): Got message of unknown type.")
 }
 
-//
-func caviarOpen(name string, flag int, perm os.FileMode) (f File, err error) {
-    found := false
-    npath := name
-    var file *fileInfo
-    var dirinfo *directoryInfo
+// CaviarOpen behaves the same way as Open but it will only attempt to open
+// files and directories contained within the bundle and will not pass along
+// the call to os.Open() on failure.
+func CaviarOpen(name string) (File, error) {
+    return CaviarOpenFile(name, 0, 0)
+}
+
+// CaviarOpenFile is to OpenFile what CaviarOpen is to Open.
+func CaviarOpenFile(name string, flag int, perm os.FileMode) (File, error) {
+    if !state.ready { return nil, debug(errors.New("Caviar is not ready.")) }
+
+    // TODO: Validate flags and permissions (can't open a Caviar file for
+    // writing, after all).
+
+    obj, err := findObject(name)
+    if err != nil { return nil, debug(err) }
+
+    return &CaviarFile{ obj, genFd(obj), 0 }, nil
+}
+
+// Given a path, find the corresponding Object. Returns an error if not found.
+func findObject(name string) (obj *Object, err error) {
+    // TODO: Handle volumes names and implement case-insensitive matches for
+    // Windows support.
 
     // Turn relative paths to absolute paths
-    if !strings.HasPrefix(npath, "/") {
-        cwd, err := os.Getwd()
-        if err != nil { return f, err }
-        npath = path.Join(cwd, npath)
+    if !path.IsAbs(name) {
+        name, err = filepath.Abs(filepath.Clean(name))
+        if err != nil { return nil, debug(err) }
     }
 
-    if strings.HasPrefix(npath, assetpath) {
-        // Convert matching absolute paths back to relative paths
-        npath = npath[len(assetpath):]
-
-        // Attempt to resolve path down to a fileInfo instance
-        file, dirinfo, err = findAsset(name, npath)
-        if err != nil {
-            found = false
-        } else {
-            found = true
-        }
-    }
-
-    if !found {
-        if short {
-            return os.Open(name)
-        } else {
-            return os.OpenFile(name, flag, perm)
-        }
-    }
-
-    fd := mkfd()
-    state.descriptors[fd] = new(fileDescriptor)
-    state.descriptors[fd].file = file
-    state.descriptors[fd].directory = dirinfo
-    state.descriptors[fd].position = 0 // Just in case.
-
-    return &CaviarFile{ uint(fd) }, nil
-}
-
-func findAsset(name, npath string) (file *fileInfo, dirinfo *directoryInfo, err error) {
-    segments := strings.Split(npath, "/")
-    fileordir := segments[len(segments)-1]
-    segments = segments[:len(segments)-1]
-
-    // TODO: should handle opening the asset root directly and merge with os
-    // output if needed.
-
-    // Find directory
-    curdir := &state.root
+    // Find object
+    segments := strings.Split(name, string(os.PathSeparator))
+    curobj := &state.manifest.ObjectRoot
     for _, segment := range segments {
-        if segment == "." { continue }
-        if segment == ".." {
-            if curdir.parent != nil {
-                curdir = curdir.parent
-                continue
-            } else {
-                return file, dirinfo, errors.New("Caviar file not found: " + name)
-            }
-        }
-        for i, dir := range curdir.directories {
-            if dir.name == segment {
-                curdir = &curdir.directories[i]
+        for i, o := range curobj.Objects {
+            if o.Name == segment {
+                curobj = &curobj.Objects[i]
                 continue
             }
         }
-        return file, dirinfo, errors.New("Caviar file not found: " + name)
+        return nil, debug(errors.New("Caviar file not found: " + name))
     }
 
-    // Is it a file?
-    for i, entry := range curdir.files {
-        if entry.name == fileordir {
-            return &curdir.files[i], nil, nil
-        }
-    }
-
-    // Is it a directory?
-    for i, entry := range curdir.directories {
-        // TODO: handle '.' and '..'?
-        if entry.name == fileordir {
-            return nil, &curdir.directories[i], nil
-        }
-    }
-
-    return file, dirinfo, errors.New("Caviar file not found: " + name)
+    return curobj, nil
 }
 
 // Generate a probably unique FD.
 func genFd(obj *Object) int64 {
-    return obj.Checksum + time.Now().Unix()
+    return int64(obj.Checksum) + time.Now().Unix()
 }
 

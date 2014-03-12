@@ -27,43 +27,53 @@ func Init() (err error) {
     // Setup global state
     state.ready = false
     state.prefix, err = osext.ExecutableFolder()
-    if err != nil { return err }
+    if err != nil { return debug(err) }
 
     // Load ZIP container
     path, err := osext.Executable()
-    if err != nil { return err }
+    if err != nil { return debug(err) }
 
     reader, err := zip.OpenReader(path)
     if err != nil {
         reader, err = zip.OpenReader(DetachedName(path))
-        if err != nil { return err }
+        if err != nil { return debug(err) }
     }
     defer reader.Close()
 
     // Load manifest
     m, err := getFile(reader, "Manifest.gob")
-    if err != nil { return err }
+    if err != nil { return debug(err) }
 
     dec := gob.NewDecoder(m)
     err = dec.Decode(&state.manifest)
-    if err != nil { return err }
+    if err != nil { return debug(err) }
 
     // Process bundle options
     if state.manifest.Options.CustomPrefix != "" {
         state.prefix = state.manifest.Options.CustomPrefix
     }
 
+    if state.manifest.Options.ExtractionMode != EXTRACT_MEMORY {
+        return debug(errors.New("Unsupported extraction mode: only EXTRACT_MEMORY is currently supported."))
+    }
+
     // Load assets
     // TODO: account for extraction mode
     a, err := getFile(reader, "Assets.bin")
-    if err != nil { return err }
+    if err != nil { return debug(err) }
 
     state.assets, err = ioutil.ReadAll(a)
-    if err != nil { return err }
+    if err != nil {
+        state.assets = nil
+        return debug(err)
+    }
 
     // Verify manifest
     err = verifyManifest()
-    if err != nil { return err }
+    if err != nil {
+        state.assets = nil
+        return debug(err)
+    }
 
     // All done
     debug("Caviar is ready.")
@@ -75,9 +85,10 @@ func Init() (err error) {
 func getFile(reader *zip.ReadCloser, name string) (io.Reader, error) {
     for _, f := range reader.File {
         if f.Name != name { continue }
-        return f.Open()
+        r, err := f.Open()
+        return r, debug(err)
     }
-    return nil, errors.New("File not found: " + name)
+    return nil, debug(errors.New("File not found: " + name))
 }
 
 // Call Init() automatically on startup.

@@ -6,7 +6,7 @@ resources/assets that you would normally deploy along with your executable into
 a custom ZIP file which will then bundled with your program's executable (or
 not, your choice).
 
-NOTE: UNDER DEVELOPMENT. NOT READY FOR PRIMETIME.
+*NOTE: UNDER DEVELOPMENT. NOT READY FOR PRIMETIME.*
 
 
 Install
@@ -20,20 +20,16 @@ Usage
 -----
 Converting your program to use Caviar is very straightforward, just import
 "github.com/mvillalba/caviar", change any calls to os.Open/OpenFile to
-caviar.Open/OpenFile, call caviar.Init() early inside your main() function,
-and run the bundled `cavundle` utility on your compiled executables. That's it.
-
-NOTE: If you don't call caviar.Init() yourself, it will be automatically called
-the first time caviar.Open/OpenFile is called, but it's better if you call it
-manually as caviar.Init() takes some time to run and may cause your program to
-freeze up for a bit.
+caviar.Open/OpenFile, and run the bundled `cavundle` utility on your compiled
+executables. That's it.
 
 During runtime, Caviar will attempt to load bundled resources from the running
-executable and failing tham from a detached container (executable-name.cvr).
+executable and failing that from a detached container (executable-name.cvr).
 
-Your program will still run even if a suitable container could not be loaded.
+Your program will still run in the event a Caviar bundle can't be loaded.
 Caviar will simply pass through your Open/OpenFile calls to the os package
-transparently. This is very useful for development.
+transparently. This is very useful for development. And the same goes for
+opening files not present in the bundle.
 
 Got dependencies that need to read various files and won't take an io.Reader
 (I'm looking at you, Revel framework)? You can use the bundled tool
@@ -44,15 +40,19 @@ dependencies) to load their files via Caviar's API like this:
 
 See the examples directory for a handful of working toy program examples.
 
-NOTE: Caviar is designed with long-running processes (such as Web apps) that
+*NOTE: In order to generate attached bundles (program = program + asset
+bundle), cavundle needs the to execute `zip` program due to a shortcoming with
+Go's ZIP library*
+
+*NOTE: Caviar is designed with long-running processes (such as Web apps) that
 need to have quick access to their assets/resources in mind and this has some
 consequences. Namely, Caviar will load all assets to RAM on startup and it will
-keep them there.
+keep them there.*
 
-NOTE: This is an early version of Caviar and no cross-platform testing has been
-done. It works on Linux (and probably other *nix variants), but using it on
+*NOTE: This is an early version of Caviar and no cross-platform testing has been
+done. It works on Linux (and probably other UNIX variants), but using it on
 Windows will likely require some work (case-insensitive matches, possible
-hard-coded paths, etc.). You are welcome to submit a patch.
+hard-coded paths, etc.). You are welcome to submit a patch.*
 
 
 Contact

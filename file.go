@@ -44,7 +44,7 @@ type CaviarFile struct {
 func (f *CaviarFile) Read(b []byte) (int, error) {
     // Directory? No can do!
     if f.obj.ModeBits.IsDir() {
-        return 0, errors.New("Can't read data from a directory.")
+        return 0, debug(errors.New("Can't read data from a directory."))
     }
 
     // How much are we going to read?
@@ -56,7 +56,7 @@ func (f *CaviarFile) Read(b []byte) (int, error) {
 
     // Make the copy
     data, err := getPayload(f.obj)
-    if err != nil { return 0, err }
+    if err != nil { return 0, debug(err) }
 
     copy(b, data)
 
@@ -69,26 +69,26 @@ func (f *CaviarFile) Read(b []byte) (int, error) {
 // io.ReaderAt
 // TODO: UPDATE
 func (f *CaviarFile) ReadAt(b []byte, off int64) (n int, err error) {
-    return n, errors.New("Not Implemented: ReadAt()") // TODO
+    return n, debug(errors.New("Not Implemented: ReadAt()")) // TODO
 }
 
 // Write mimicks os.File.Write(). It always returns an error as Caviar files
 // are read-only.
 func (f *CaviarFile) Write(b []byte) (n int, err error) {
-    return 0, errors.New("Can't write file: caviar files are read-only.")
+    return 0, debug(errors.New("Can't write file: caviar files are read-only."))
 }
 
 // WriteAt mimicks os.File.WriteAt(). It always returns an error as Caviar
 // files are read-only.
 func (f *CaviarFile) WriteAt(b []byte, off int64) (int, error) {
-    return 0, errors.New("Can't write file: caviar files are read-only.")
+    return 0, debug(errors.New("Can't write file: caviar files are read-only."))
 }
 
 // Seek mimicks os.File.Seek().
 func (f *CaviarFile) Seek(offset int64, whence int) (pos int64, err error) {
     // Directory? No can do!
     if f.obj.ModeBits.IsDir() {
-        return 0, errors.New("Can't seek through a directory.")
+        return 0, debug(errors.New("Can't seek through a directory."))
     }
 
     // Seek, seek, seek!
@@ -102,9 +102,9 @@ func (f *CaviarFile) Seek(offset int64, whence int) (pos int64, err error) {
 
     // Did we go over or under?
     if f.obj.Size < pos {
-        return f.pos, errors.New("Attempted to Seek() beyond end of file.")
+        return f.pos, debug(errors.New("Attempted to Seek() beyond end of file."))
     } else if pos < 0 {
-        return f.pos, errors.New("Attempted to Seek() before start of file.")
+        return f.pos, debug(errors.New("Attempted to Seek() before start of file."))
     }
 
     f.pos = pos
@@ -114,7 +114,7 @@ func (f *CaviarFile) Seek(offset int64, whence int) (pos int64, err error) {
 // Close mimicks os.File.Close()
 func (f *CaviarFile) Close() error {
     if f.obj == nil {
-        return errors.New("File already closed.")
+        return debug(errors.New("File already closed."))
     }
     f.obj = nil
     return nil
@@ -136,13 +136,13 @@ func (f *CaviarFile) Name() string {
 // doing so for EXTRACT_TEMP would screw up relative paths causing subtle bugs.
 func (f *CaviarFile) Chdir() error {
     // TODO: account for extraction mode as the docstring explains.
-    return errors.New("Can't chdir to file's directory: caviar files exist only in memory.")
+    return debug(errors.New("Can't chdir to file's directory: caviar files exist only in memory."))
 }
 
 // Sync mimicks os.File.Sync(). It always returns an error as Caviar files are
 // read-only.
 func (f *CaviarFile) Sync() (err error) {
-    return errors.New("Can't sync file: caviar files are read-only.")
+    return debug(errors.New("Can't sync file: caviar files are read-only."))
 }
 
 // Fd mimicks os.File.Fd(). The returned file descriptor is a dummy value that
@@ -154,34 +154,34 @@ func (f *CaviarFile) Fd() uintptr {
 // Truncate mimicks os.File.Truncate(). It always returns an error as Caviar
 // files are read-only.
 func (f *CaviarFile) Truncate(size int64) error {
-    return errors.New("Can't truncate file: caviar files are read-only.")
+    return debug(errors.New("Can't truncate file: caviar files are read-only."))
 }
 
 // WriteString mimicks os.File.WriteString(). It always returns an error as
 // Caviar files are read-only.
 func (f *CaviarFile) WriteString(s string) (int, error) {
     if len(s) == 0 { return 0, nil }
-    return 0, errors.New("Can't write file: caviar files are read-only.")
+    return 0, debug(errors.New("Can't write file: caviar files are read-only."))
 }
 
 // Chmod mimicks os.File.Chmod(). It always returns an error as Caviar files
 // are read-only.
 func (f *CaviarFile) Chmod(mode os.FileMode) error {
-    return errors.New("Can't chmod file: caviar files are read-only.")
+    return debug(errors.New("Can't chmod file: caviar files are read-only."))
 }
 
 // Chown mimicks os.File.Chown(). It always returns an error as Caviar files
 // are read-only.
 func (f *CaviarFile) Chown(uid, gid int) error {
-    return errors.New("Can't chown file: caviar files are read-only.")
+    return debug(errors.New("Can't chown file: caviar files are read-only."))
 }
 
 // TODO: document
 func (f *CaviarFile) Readdir(n int) (fi []os.FileInfo, err error) {
-    return fi, errors.New("Not Implemented: Readdir().") // TODO
+    return fi, debug(errors.New("Not Implemented: Readdir().")) // TODO
 }
 
 // TODO: document
 func (f *CaviarFile) Readdirnames(n int) (names []string, err error) {
-    return names, errors.New("Not Implemented: Readdir().") // TODO
+    return names, debug(errors.New("Not Implemented: Readdir().")) // TODO
 }

@@ -10,8 +10,7 @@ import (
 // Open mimicks os.Open. It will first attempt to open the file as an internal
 // Caviar file and failing that it will pass along the call to the os package.
 func Open(name string) (File, error) {
-    if !state.ready { return os.Open(name) }
-    file, err := caviarOpen(name, 0, 0)
+    file, err := CaviarOpen(name)
     if err != nil { return os.Open(name) }
     return file, nil
 }
@@ -20,8 +19,7 @@ func Open(name string) (File, error) {
 // internal Caviar file and failing that it will pass along the call to the os
 // package.
 func OpenFile(name string, flag int, perm os.FileMode) (File, error) {
-    if !state.ready { return os.OpenFile(name, flag, perm) }
-    file, err := caviarOpen(name, flag, perm)
+    file, err := CaviarOpenFile(name, flag, perm)
     if err != nil { return os.OpenFile(name, flag, perm) }
     return file, nil
 }
@@ -30,10 +28,10 @@ func OpenFile(name string, flag int, perm os.FileMode) (File, error) {
 // symlinks inside the bundle so Lstat() will be have identically to Stat() for
 // paths matching files and directories inside the bundle.
 func Lstat(name string) (fi os.FileInfo, err error) {
-    return fi, errors.New("Lstat(): Not Implemented.") // TODO
+    return fi, debug(errors.New("Lstat(): Not Implemented.")) // TODO
 }
 
 // Stat mimicks os.Stat()
 func Stat(name string) (fi os.FileInfo, err error) {
-    return fi, errors.New("Stat(): Not Implemented.") // TODO
+    return fi, debug(errors.New("Stat(): Not Implemented.")) // TODO
 }
