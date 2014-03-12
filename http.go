@@ -1,3 +1,6 @@
+// http.go implements drop-in replacements for functions in the net/http
+// package.
+
 package caviar
 
 import (
@@ -8,9 +11,10 @@ import (
     "net/http"
 )
 
-// Replacement for net/http.Dir
+// Replacement for net/http.Dir.
 type HttpDir string
 
+// Caviarized copy of net/http.Dir.Open()
 func (d HttpDir) Open(name string) (http.File, error) {
     if filepath.Separator != '/' && strings.IndexRune(name, filepath.Separator) >= 0 ||
         strings.Contains(name, "\x00") {

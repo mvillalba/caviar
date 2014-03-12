@@ -1,22 +1,18 @@
+// file.go contains a drop-in replacement for the os.File API.
+
 package caviar
 
 import (
     "io"
     "os"
-    "strings"
-    "path"
     "errors"
-    "time"
 )
 
-const READ_MAX = 1024 * 32 // 32 KiB
+// Maximum number of bytes to read when calling Read().
+const READ_MAX = 1024 * 32
 
-// In-memory file
-type CaviarFile struct {
-    fd      uint
-}
-
-// os.File and friends mocking
+// File mimicks the os.File type's entire public API so Caviar can serve as a
+// drop-in replacement.
 type File interface {
     io.Reader
     io.ReaderAt
@@ -37,302 +33,155 @@ type File interface {
     Readdirnames(n int) (names []string, err error)
 }
 
-func caviarOpen(name string, flag int, perm os.FileMode, short bool) (f File, err error) {
-    // Locking for the greater good
-    state.mu.Lock()
-    defer state.mu.Unlock()
-
-    found := false
-    npath := name
-    var file *fileInfo
-    var dirinfo *directoryInfo
-
-    // Turn relative paths to absolute paths
-    if !strings.HasPrefix(npath, "/") {
-        cwd, err := os.Getwd()
-        if err != nil { return f, err }
-        npath = path.Join(cwd, npath)
-    }
-
-    if strings.HasPrefix(npath, assetpath) {
-        // Convert matching absolute paths back to relative paths
-        npath = npath[len(assetpath):]
-
-        // Attempt to resolve path down to a fileInfo instance
-        file, dirinfo, err = findAsset(name, npath)
-        if err != nil {
-            found = false
-        } else {
-            found = true
-        }
-    }
-
-    if !found {
-        if short {
-            return os.Open(name)
-        } else {
-            return os.OpenFile(name, flag, perm)
-        }
-    }
-
-    fd := mkfd()
-    state.descriptors[fd] = new(fileDescriptor)
-    state.descriptors[fd].file = file
-    state.descriptors[fd].directory = dirinfo
-    state.descriptors[fd].position = 0 // Just in case.
-
-    return &CaviarFile{ uint(fd) }, nil
+// CaviarFile implements caviar.File and serves as a replacement for os.File.
+type CaviarFile struct {
+    obj *Object
+    fd  int64
+    pos int64
 }
 
-// Call this function after acquiring the global state mutex!
-func mkfd() int {
-    for i, entry := range state.descriptors {
-        if entry == nil { return i }
-    }
-    state.descriptors = append(state.descriptors, nil)
-    return len(state.descriptors) - 1
-}
-
-// Call this function after acquiring the global state mutex!
-func findAsset(name, npath string) (file *fileInfo, dirinfo *directoryInfo, err error) {
-    segments := strings.Split(npath, "/")
-    fileordir := segments[len(segments)-1]
-    segments = segments[:len(segments)-1]
-
-    // TODO: should handle opening the asset root directly and merge with os
-    // output if needed.
-
-    // Find directory
-    curdir := &state.root
-    for _, segment := range segments {
-        if segment == "." { continue }
-        if segment == ".." {
-            if curdir.parent != nil {
-                curdir = curdir.parent
-                continue
-            } else {
-                return file, dirinfo, errors.New("Caviar file not found: " + name)
-            }
-        }
-        for i, dir := range curdir.directories {
-            if dir.name == segment {
-                curdir = &curdir.directories[i]
-                continue
-            }
-        }
-        return file, dirinfo, errors.New("Caviar file not found: " + name)
-    }
-
-    // Is it a file?
-    for i, entry := range curdir.files {
-        if entry.name == fileordir {
-            return &curdir.files[i], nil, nil
-        }
-    }
-
-    // Is it a directory?
-    for i, entry := range curdir.directories {
-        // TODO: handle '.' and '..'?
-        if entry.name == fileordir {
-            return nil, &curdir.directories[i], nil
-        }
-    }
-
-    return file, dirinfo, errors.New("Caviar file not found: " + name)
-}
-
-func Open(name string) (file File, err error) {
-    if !cavinit { Init() }
-    if bypass { return os.Open(name) }
-    return caviarOpen(name, 0, 0, true)
-}
-
-func OpenFile(name string, flag int, perm os.FileMode) (file File, err error) {
-    if !cavinit { Init() }
-    if bypass { return os.OpenFile(name, flag, perm) }
-    return caviarOpen(name, flag, perm, false)
-}
-
-// io.Reader
-func (f *CaviarFile) Read(b []byte) (n int, err error) {
-    // How to avoid this…?
-    state.mu.Lock()
-    defer state.mu.Unlock()
-
-    // Is it a dir?
-    if state.descriptors[f.fd].file == nil {
+// Read mimicks os.File.Read().
+func (f *CaviarFile) Read(b []byte) (int, error) {
+    // Directory? No can do!
+    if f.obj.ModeBits.IsDir() {
         return 0, errors.New("Can't read data from a directory.")
     }
 
     // How much are we going to read?
-    n = len(b)
-    l := int(state.descriptors[f.fd].file.size - state.descriptors[f.fd].position)
+    n := int64(len(b))
+    l := f.obj.Size - f.pos
     if n > READ_MAX { n = READ_MAX }
     if n > l { n = l }
     if n == 0 { return 0, io.EOF }
 
     // Make the copy
-    start := state.descriptors[f.fd].file.offset + state.descriptors[f.fd].position
-    end := int(start) + n
-    copy(b, state.assets[start:end])
+    data, err := getPayload(f.obj)
+    if err != nil { return 0, err }
 
-    // Update FD position
-    state.descriptors[f.fd].position += uint(n)
+    copy(b, data)
 
-    return n, nil
+    // Update read position
+    f.pos += n
+
+    return int(n), nil
 }
 
 // io.ReaderAt
+// TODO: UPDATE
 func (f *CaviarFile) ReadAt(b []byte, off int64) (n int, err error) {
     return n, errors.New("Not Implemented: ReadAt()") // TODO
 }
 
-// io.Writer
+// Write mimicks os.File.Write(). It always returns an error as Caviar files
+// are read-only.
 func (f *CaviarFile) Write(b []byte) (n int, err error) {
-    if len(b) == 0 { return 0, nil }
     return 0, errors.New("Can't write file: caviar files are read-only.")
 }
 
-// io.WriterAt
+// WriteAt mimicks os.File.WriteAt(). It always returns an error as Caviar
+// files are read-only.
 func (f *CaviarFile) WriteAt(b []byte, off int64) (int, error) {
-    if len(b) == 0 { return 0, nil }
     return 0, errors.New("Can't write file: caviar files are read-only.")
 }
 
-// io.Seeker
-func (f *CaviarFile) Seek(offset int64, whence int) (ret int64, err error) {
-    // Lock'em up
-    state.mu.Lock()
-    defer state.mu.Unlock()
-
-    // Is it a dir?
-    if state.descriptors[f.fd].file == nil {
+// Seek mimicks os.File.Seek().
+func (f *CaviarFile) Seek(offset int64, whence int) (pos int64, err error) {
+    // Directory? No can do!
+    if f.obj.ModeBits.IsDir() {
         return 0, errors.New("Can't seek through a directory.")
     }
 
-    if whence == 0 {
-        state.descriptors[f.fd].position = uint(offset)
-    } else if whence == 1 {
-        state.descriptors[f.fd].position += uint(offset)
-        if state.descriptors[f.fd].file.size < state.descriptors[f.fd].position {
-            state.descriptors[f.fd].position = state.descriptors[f.fd].file.size
-        }
-    } else if whence == 2 {
-        state.descriptors[f.fd].position = uint(offset) + state.descriptors[f.fd].file.size
+    // Seek, seek, seek!
+    if        whence == os.SEEK_SET {
+        pos = offset                // From start of file
+    } else if whence == os.SEEK_CUR {
+        pos = f.pos + offset        // From current position
+    } else if whence == os.SEEK_END {
+        pos = f.obj.Size + offset   // From end of file
     }
 
-    return int64(state.descriptors[f.fd].position), nil
+    // Did we go over or under?
+    if f.obj.Size < pos {
+        return f.pos, errors.New("Attempted to Seek() beyond end of file.")
+    } else if pos < 0 {
+        return f.pos, errors.New("Attempted to Seek() before start of file.")
+    }
+
+    f.pos = pos
+    return pos, nil
 }
 
-// io.Closer
+// Close mimicks os.File.Close()
 func (f *CaviarFile) Close() error {
-    state.mu.Lock()
-    defer state.mu.Unlock()
-
-    if state.descriptors[f.fd] == nil {
+    if f.obj == nil {
         return errors.New("File already closed.")
     }
-
-    state.descriptors[f.fd] = nil
+    f.obj = nil
     return nil
 }
 
-// os.FileInfo
-type CaviarFileInfo struct {
-    file        *fileInfo
-    directory   *directoryInfo
+// Stat mimicks os.File.Stat().
+func (f *CaviarFile) Stat() (os.FileInfo, error) {
+    return &CaviarFileInfo{ f.obj }, nil
 }
 
-func (fi *CaviarFileInfo) Name() string {
-    // Files are read-only and untouched after Init() returns so no locking is
-    // needed :-).
-    if fi.file == nil {
-        return fi.directory.name
-    }
-    return fi.file.name
-}
-
-func (fi *CaviarFileInfo) Size() int64 {
-    // Files are read-only and untouched after Init() returns so no locking is
-    // needed :-).
-    if fi.file == nil {
-        return 0
-    }
-    return int64(fi.file.size)
-}
-
-func (fi *CaviarFileInfo) Mode() os.FileMode {
-    chmod := os.FileMode(0664)
-    if fi.file == nil {
-        return os.ModeDir | chmod
-    }
-    return chmod
-}
-
-func (fi *CaviarFileInfo) ModTime() time.Time {
-    return modtime
-}
-
-func (fi *CaviarFileInfo) IsDir() bool {
-    return fi.Mode().IsDir()
-}
-
-func (fi *CaviarFileInfo) Sys() interface{} {
-    return nil
-}
-
-// os.File
-func (f *CaviarFile) Stat() (fi os.FileInfo, err error) {
-    state.mu.Lock()
-    defer state.mu.Unlock()
-
-    return &CaviarFileInfo{ state.descriptors[f.fd].file,
-                            state.descriptors[f.fd].directory }, nil
-}
-
+// Name mimicks os.File.Name().
 func (f *CaviarFile) Name() string {
-    state.mu.Lock()
-    defer state.mu.Unlock()
-
-    if state.descriptors[f.fd].file == nil {
-        return state.descriptors[f.fd].directory.name
-    }
-    return state.descriptors[f.fd].file.name
+    return f.obj.Name
 }
 
+// Chdir mimicks os.File.Chdir(). It will return with an error unless
+// EXTRACT_EXECUTABLE is used as the extraction mode for the bundle as it's not
+// possible to chdir to a virtual, in-memory directory (EXTRACT_MEMORY) and
+// doing so for EXTRACT_TEMP would screw up relative paths causing subtle bugs.
 func (f *CaviarFile) Chdir() error {
+    // TODO: account for extraction mode as the docstring explains.
     return errors.New("Can't chdir to file's directory: caviar files exist only in memory.")
 }
 
+// Sync mimicks os.File.Sync(). It always returns an error as Caviar files are
+// read-only.
 func (f *CaviarFile) Sync() (err error) {
     return errors.New("Can't sync file: caviar files are read-only.")
 }
 
+// Fd mimicks os.File.Fd(). The returned file descriptor is a dummy value that
+// is unlikely to repeat across Open files (but no guarantees).
 func (f *CaviarFile) Fd() uintptr {
     return uintptr(f.fd)
 }
 
+// Truncate mimicks os.File.Truncate(). It always returns an error as Caviar
+// files are read-only.
 func (f *CaviarFile) Truncate(size int64) error {
     return errors.New("Can't truncate file: caviar files are read-only.")
 }
 
+// WriteString mimicks os.File.WriteString(). It always returns an error as
+// Caviar files are read-only.
 func (f *CaviarFile) WriteString(s string) (int, error) {
     if len(s) == 0 { return 0, nil }
     return 0, errors.New("Can't write file: caviar files are read-only.")
 }
 
+// Chmod mimicks os.File.Chmod(). It always returns an error as Caviar files
+// are read-only.
 func (f *CaviarFile) Chmod(mode os.FileMode) error {
     return errors.New("Can't chmod file: caviar files are read-only.")
 }
 
+// Chown mimicks os.File.Chown(). It always returns an error as Caviar files
+// are read-only.
 func (f *CaviarFile) Chown(uid, gid int) error {
     return errors.New("Can't chown file: caviar files are read-only.")
 }
 
+// TODO: document
 func (f *CaviarFile) Readdir(n int) (fi []os.FileInfo, err error) {
     return fi, errors.New("Not Implemented: Readdir().") // TODO
 }
 
+// TODO: document
 func (f *CaviarFile) Readdirnames(n int) (names []string, err error) {
     return names, errors.New("Not Implemented: Readdir().") // TODO
 }
