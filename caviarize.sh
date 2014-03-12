@@ -23,6 +23,7 @@ function caviarpatch {
         sed -i 's/os\.FileInfo/ostmp\.FileInfo/g' $line
         sed -i 's/os\.File/caviar\.File/g' $line
         sed -i 's/ostmp\.FileInfo/os\.FileInfo/g' $line
+        sed -i 's/http\.Dir/caviar\.Dir/g' $line
         sed -i 's/"os"/"os"\n\t"github.com\/mvillalba\/caviar"/g' $line
         echo "" >> $line
         echo "// Bypass unused-imports problem (remove if this is your own code)" >> $line
