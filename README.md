@@ -54,6 +54,8 @@ done. It works on Linux (and probably other UNIX variants), but using it on
 Windows will likely require some work (case-insensitive matches, possible
 hard-coded paths, etc.). You are welcome to submit a patch.*
 
+[![GoDoc](https://godoc.org/github.com/mvillalba/caviar?status.png)](https://godoc.org/github.com/mvillalba/caviar)
+
 
 Contact
 -------
@@ -132,3 +134,5 @@ TODO
    that of the native OS and merge them together.
  * Run some benchmarks on just how much faster (or slower) Caviar is relative
    to the native OS both for files in and out of the kernel's disk cache.
+ * More documentation.
+ * Move issues to GitHub's bug tracker.
