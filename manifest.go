@@ -8,6 +8,7 @@ import (
     "fmt"
     "errors"
     "os"
+    "path"
     "hash/crc32"
 )
 
@@ -99,6 +100,9 @@ func verifyManifest() (error) {
         return debug(errors.New(errstr))
     }
 
+    // Patch object root with correct basename.
+    state.manifest.ObjectRoot.Name = path.Base(state.prefix)
+
     // Verify options
     emode := state.manifest.Options.ExtractionMode
     if emode != EXTRACT_MEMORY && emode != EXTRACT_TEMP && emode != EXTRACT_EXECUTABLE {
@@ -145,9 +149,11 @@ func verifyObject(obj *Object) (count int64, err error) {
             if err != nil { return 0, err }
             h := crc32.NewIEEE()
             h.Write(data)
+
             if obj.Checksum != h.Sum32() {
                 return 0, debug(errors.New("Checksum error."))
             }
+
             count += obj.Size
         }
     }

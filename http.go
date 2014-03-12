@@ -12,10 +12,10 @@ import (
 )
 
 // Replacement for net/http.Dir.
-type HttpDir string
+type Dir string
 
 // Caviarized copy of net/http.Dir.Open()
-func (d HttpDir) Open(name string) (http.File, error) {
+func (d Dir) Open(name string) (http.File, error) {
     if filepath.Separator != '/' && strings.IndexRune(name, filepath.Separator) >= 0 ||
         strings.Contains(name, "\x00") {
         return nil, debug(errors.New("http: invalid character in file path"))

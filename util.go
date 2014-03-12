@@ -19,9 +19,9 @@ const CAVIAR_EXTENSION = "cvr"
 func DetachedName(p string) string {
     ext := path.Ext(p)
     if ext != "" {
-        p = p[:len(p)-len(ext)] + CAVIAR_EXTENSION
+        p = p[:len(p)-len(ext)-1]
     }
-    return p
+    return p + "." + CAVIAR_EXTENSION
 }
 
 // Returns the total number of bytes for all loaded assets.
@@ -46,8 +46,9 @@ func isDebug() bool {
 }
 
 func debug(v interface{}) error {
+    if v == nil { return nil }
     if isDebug() {
-        log.Print(v)
+        log.Print("[CAVIAR] ", v)
     }
     if err, ok := v.(error); ok { return err }
     if err, ok := v.(string); ok { return errors.New(err) }
@@ -85,17 +86,34 @@ func findObject(name string) (obj *Object, err error) {
         if err != nil { return nil, debug(err) }
     }
 
+    // Does the path refer to the object root specifically?
+    if name == state.prefix {
+        return &state.manifest.ObjectRoot, nil
+    }
+
+    // Does it even point to a file inside the object root?
+    if !strings.HasPrefix(name, state.prefix) {
+        return nil, debug(errors.New("Caviar file not found: " + name))
+    }
+
+    // Turn absolute path into a relative path within the object root
+    name = name[len(state.prefix)+1:]
+
     // Find object
     segments := strings.Split(name, string(os.PathSeparator))
     curobj := &state.manifest.ObjectRoot
     for _, segment := range segments {
+        match := false
         for i, o := range curobj.Objects {
             if o.Name == segment {
                 curobj = &curobj.Objects[i]
-                continue
+                match = true
+                break
             }
         }
-        return nil, debug(errors.New("Caviar file not found: " + name))
+        if !match {
+            return nil, debug(errors.New("Caviar file not found: " + name))
+        }
     }
 
     return curobj, nil

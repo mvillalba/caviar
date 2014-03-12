@@ -9,7 +9,8 @@ import (
     "io"
     "io/ioutil"
     "errors"
-    "log"
+    "path"
+    "fmt"
 )
 
 // Global state
@@ -24,10 +25,12 @@ var state caviarState
 
 // Init sets up Caviar's internal state and loads the bundle, if any.
 func Init() (err error) {
+    if state.ready { return debug(errors.New("Already initialized.")) }
+
     // Setup global state
-    state.ready = false
-    state.prefix, err = osext.ExecutableFolder()
+    state.prefix, err = osext.Executable()
     if err != nil { return debug(err) }
+    state.prefix = path.Dir(state.prefix)
 
     // Load ZIP container
     path, err := osext.Executable()
@@ -77,6 +80,7 @@ func Init() (err error) {
 
     // All done
     debug("Caviar is ready.")
+    debug(fmt.Sprintf("Loaded %v bytes.", PayloadSize()))
     state.ready = true
     return nil
 }
@@ -93,8 +97,5 @@ func getFile(reader *zip.ReadCloser, name string) (io.Reader, error) {
 
 // Call Init() automatically on startup.
 func init() {
-    err := Init()
-    if err != nil && isDebug() {
-        log.Fatal(err)
-    }
+    Init()
 }

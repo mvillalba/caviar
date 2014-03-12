@@ -112,8 +112,23 @@ TODO
  * Implement a Caviar FS walk function to shadow path/filepath.Walk().
  * There is a bit of a type casting mess. Make everything use int64 and be done
    with it.
- * Implement
+ * Port caviarize to Go.
  * Get auxiliary os methods working (Stat, Lstat, etc.).
  * Make Revel work.
  * Make Martini work.
  * Allow directories to be open (Martini seems to need this).
+ * Make sure all functions only operate when Caviar is ready and error out
+   otherwise.
+ * Setup Travis CI/Wercker and Godoc.
+ * Make sure no CaviarFile related function allows itself to be called on a
+   closed file. Should return os.ErrInvalid.
+ * Apparently, in for…range…{} constructs, range makes a copy of the object
+   being looped, which is really bad for the object tree which could
+   potentially be pretty big. Go through the code and make the loops not use
+   range when iterating over the object tree. Or perhaps this is pointless, as
+   the objects themselves hold children on a slice which is a reference type,
+   right?
+ * Functions such as CaviarFile.Readdir() should merge their own output with
+   that of the native OS and merge them together.
+ * Run some benchmarks on just how much faster (or slower) Caviar is relative
+   to the native OS both for files in and out of the kernel's disk cache.

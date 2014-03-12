@@ -1,9 +1,11 @@
+// Cavundle creates asset bundles for Caviar-enabled programs.
 package main
 
 import (
     "fmt"
     "os"
     "os/exec"
+    "path"
     "path/filepath"
     "archive/zip"
     "flag"
@@ -12,8 +14,8 @@ import (
     "encoding/gob"
     "github.com/mvillalba/caviar"
     "io/ioutil"
-    "strings"
     "errors"
+    "hash/crc32"
 )
 
 const MANIFEST_COMMENT =
@@ -23,22 +25,29 @@ Copyright © 2014 Martín Raúl Villalba (http://www.martinvillalba.com/).`
 type Args struct {
     cherrypick  bool
     detached    bool
+    debug       bool
     executable  string
+    prefix      string
     paths       []string
 }
 
 func parseArgs() (a Args) {
     cphelp := "add asset paths as sub-directories (rather than merge all contained files and directories across asset paths under one directory)."
     dthelp := "produce detached asset container."
+    dbhelp := "enable Caviar's debug mode."
+    pfhelp := "custom path prefix for asset root."
     flag.BoolVar(&a.cherrypick, "cherrypick", false, cphelp)
     flag.BoolVar(&a.detached, "detached", false, dthelp)
+    flag.BoolVar(&a.debug, "debug", false, dbhelp)
+    flag.StringVar(&a.prefix, "prefix", "", pfhelp)
+    // TODO: extraction mode
     flag.Parse()
 
     if len(flag.Args()) < 2 {
         fmt.Println("Cavundle is part of the Caviar resource packer for Go (http://github.com/mvillalba/caviar).")
         fmt.Println("Copyright © 2014 Martín Raúl Villalba <martin@martinvillalba.com>")
         fmt.Println("")
-        fmt.Println("Usage: %s [--cherrypick] EXECUTABLE ASSET-PATH-1[...ASSET-PATH-N]")
+        fmt.Println("Usage: %s [OPTIONS] EXECUTABLE ASSET-PATH-1[...ASSET-PATH-N]")
         flag.PrintDefaults()
         os.Exit(1)
     }
@@ -54,69 +63,66 @@ func parseArgs() (a Args) {
 }
 
 
-func getDir(path, prefix string, manifest *caviar.Manifest) *caviar.DirectoryInfo {
-    if !strings.HasPrefix(path, prefix) { log.Fatal("Internal error.") }
-    curdir := &manifest.AssetRoot
-    for _, segment := range strings.Split(path[len(prefix):], "/") {
-        // Find segment in curdir
-        found := false
-        var newcurdir *caviar.DirectoryInfo
-        for i, entry := range curdir.Directories {
-            if entry.Name != segment { continue }
-            found = true; newcurdir = &curdir.Directories[i]; break
+func processDirectory(obj *caviar.Object, dir string, buf *bytes.Buffer) error {
+    dirlist, err := ioutil.ReadDir(dir)
+    if err != nil { return err }
+    for _, entry := range dirlist {
+        entrypath := path.Join(dir, entry.Name())
+
+        nobj := new(caviar.Object)
+        nobj.Name = entry.Name()
+        nobj.ModeBits = entry.Mode()
+        nobj.ModTime = entry.ModTime().Unix()
+
+        if entry.IsDir() {
+            nobj.Size = 0
+            nobj.Offset = 0
+            nobj.Checksum = 0
+
+            err := processDirectory(nobj, entrypath, buf)
+            if err != nil { return err }
+        } else {
+            if entry.Size() == 0 {
+                nobj.Size = 0
+                nobj.Offset = 0
+                nobj.Checksum = 0
+            } else {
+                nobj.Size = entry.Size()
+                nobj.Offset = int64(buf.Len())
+
+                payload, err := ioutil.ReadFile(entrypath)
+                if err != nil { return err }
+
+                buf.Write(payload)
+                h := crc32.NewIEEE()
+                h.Write(payload)
+                nobj.Checksum = h.Sum32()
+            }
         }
 
-        // Add dir representing segment to curdir
-        if !found {
-            var newdir caviar.DirectoryInfo
-            newdir.Name = segment
-            curdir.Directories = append(curdir.Directories, newdir)
-            newcurdir = &curdir.Directories[len(curdir.Directories)-1]
-        }
-
-        // Set curdir to found/added directory entry
-        curdir = newcurdir
+        obj.Objects = append(obj.Objects, *nobj)
     }
-    return curdir
+
+    return nil
 }
 
-func processAssets(args Args) (caviar.Manifest, []byte, error) {
+func processAssets(args Args) (*caviar.Manifest, []byte, error) {
     // Init
     buf := new(bytes.Buffer)
-    var manifest caviar.Manifest
+    manifest := new(caviar.Manifest)
     manifest.Magic = caviar.MANIFEST_MAGIC
     manifest.Comment = MANIFEST_COMMENT
-    manifest.AssetRoot.Name = caviar.ASSETROOT_MAGIC
+    manifest.ObjectRoot.Name = caviar.OBJECTROOT_MAGIC
+    manifest.ObjectRoot.ModeBits = os.ModeDir | 0755;
+    manifest.Options.Debug = args.debug
+    manifest.Options.CustomPrefix = args.prefix
+    manifest.Options.ExtractionMode = caviar.EXTRACT_MEMORY
 
-    // Walk
-    for _, path := range args.paths {
-        dir := path
-        if args.cherrypick { dir = filepath.Dir(path) }
-
-        walkfunc := func(path string, info os.FileInfo, err error) error {
-            if err != nil { log.Fatal(err) }
-            if info.IsDir() {
-                // Add dir to manifest
-                _ = getDir(path, dir, &manifest)
-            } else {
-                // File info
-                assetfile := caviar.FileInfo{info.Name(), uint(info.Size())}
-                manifest.Files = append(manifest.Files, assetfile)
-                assetindex := len(manifest.Files) - 1
-
-                // Asset data
-                data, err := ioutil.ReadFile(path)
-                if err != nil { log.Fatal(err) }
-                buf.Write(data)
-
-                // Directory info
-                assetdir := getDir(filepath.Dir(path), dir, &manifest)
-                assetdir.Files = append(assetdir.Files, assetindex)
-            }
-            return nil
-        }
-
-        filepath.Walk(path, walkfunc)
+    // Process each asset path individually
+    for _, assetpath := range args.paths {
+        if args.cherrypick { assetpath = filepath.Dir(assetpath) }
+        err := processDirectory(&manifest.ObjectRoot, assetpath, buf)
+        if err != nil { return nil, nil, err }
     }
 
     return manifest, buf.Bytes(), nil
@@ -135,7 +141,7 @@ func main() {
 
     f, _ := zw.Create("Manifest.gob")
     enc := gob.NewEncoder(f)
-    err = enc.Encode(manifest)
+    err = enc.Encode(*manifest)
     if err != nil { log.Fatal(err) }
 
     f, _ = zw.Create("Assets.bin")
@@ -149,15 +155,15 @@ func main() {
     }
 
     // Dump buffer
-    path, err := filepath.Abs(args.executable)
+    fpath, err := filepath.Abs(args.executable)
     if err != nil { log.Fatal(err) }
 
     var fp *os.File
     if args.detached {
-        path = caviar.DetachedName(path)
-        fp, err = os.OpenFile(path, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0664)
+        fpath = caviar.DetachedName(fpath)
+        fp, err = os.OpenFile(fpath, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0664)
     } else {
-        fp, err = os.OpenFile(path, os.O_WRONLY | os.O_APPEND, 0664)
+        fp, err = os.OpenFile(fpath, os.O_WRONLY | os.O_APPEND, 0664)
     }
     if err != nil { log.Fatal(err) }
 
@@ -167,8 +173,10 @@ func main() {
     fp.Close()
 
     // Re-align container
+    if args.detached { return }
+
     errprefix := "Zip align error: "
-    cmd := exec.Command("zip", "-A", path)
+    cmd := exec.Command("zip", "-A", fpath)
     err = cmd.Start()
     if err != nil { log.Fatal(errors.New(errprefix + err.Error())) }
     err = cmd.Wait()
