@@ -2,9 +2,9 @@
 
 set -e
 
-go get -v github.com/mvillalba/caviar
-CAV=$GOPATH/src/github.com/mvillalba/caviar/caviarize.sh
+export GOPATH=/tmp/caviar_gopath
+rm -rf $GOPATH
 
-$CAV github.com/codegangsta/martini
+caviarize github.com/codegangsta/martini
 go build martini.go
-cavundle --debug martini assets
+cavundle martini assets

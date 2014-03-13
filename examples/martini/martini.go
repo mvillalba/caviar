@@ -1,8 +1,7 @@
 // This example showcases a trivial Martini app mostly serving static files
 // from a bundle. Martini needs to be patched to be able to serve it's files
-// through Caviar's API which we'll do automatically with the rather fidgetty
-// caviarize.sh script (I'll turn it into a decent, more-robust Go program
-// soon).
+// through Caviar's API which we'll do automatically with the caviarize
+// utility.
 package main
 
 import (

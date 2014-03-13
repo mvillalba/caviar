@@ -47,7 +47,7 @@ func parseArgs() (a Args) {
         fmt.Println("Cavundle is part of the Caviar resource packer for Go (http://github.com/mvillalba/caviar).")
         fmt.Println("Copyright © 2014 Martín Raúl Villalba <martin@martinvillalba.com>")
         fmt.Println("")
-        fmt.Println("Usage: %s [OPTIONS] EXECUTABLE ASSET-PATH-1[...ASSET-PATH-N]")
+        fmt.Printf("Usage: %s [OPTIONS] EXECUTABLE ASSET-PATH-1[...ASSET-PATH-N]\n", os.Args[0])
         flag.PrintDefaults()
         os.Exit(1)
     }

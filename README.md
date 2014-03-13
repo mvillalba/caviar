@@ -13,7 +13,9 @@ Install
 -------
 Just run:
 
- $ go get github.com/mvillalba/caviar{,/caviarize,/cavundle}
+ $ go get github.com/mvillalba/caviar
+ $ go get github.com/mvillalba/caviar/cmd/cavundle
+ $ go get github.com/mvillalba/caviar/cmd/caviarize
 
 
 Usage
@@ -136,3 +138,26 @@ TODO
    to the native OS both for files in and out of the kernel's disk cache.
  * More documentation.
  * Move issues to GitHub's bug tracker.
+ * Make Caviar faster. Maybe augment findObject() to use a hash table for path
+   search. Should really write a decent set of benchmarks that run for a set of
+   cases and then dumps the raw data for comparison to a CSV I can graph. The
+   basic cases I'm interested in are:
+   Data source:
+    * RAM disk via OS.
+    * RAM disk via Caviar.
+    * Normal HDD via OS.
+    * Normal HDD via Caviar.
+    * Caviar bundle.
+   Combines with one of the following options:
+    * Few assets (100).
+    * Many assets (10000).
+    * Fuckton of assets (1000000).
+    * Small assets (~10 KiB).
+    * Large assets (~10 MiB).
+    * Huge assets (~100 MiB).
+ * Add ciavirize-like verbose output to cavundle and make both of them produce
+   no output by default (with a -v switch to turn it on or something).
+ * BUG: with a large, ~100 MiB bundle, the toy examples use around 230 MiB of
+   RAM after initialization, which makes no sense. It's as if I was making 2
+   copies of the payload. Forcing garbage collection via runtime.GC() makes no
+   difference. Investigate.
