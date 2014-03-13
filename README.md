@@ -1,5 +1,6 @@
 Caviar
 ======
+[![Build Status](https://travis-ci.org/mvillalba/caviar.png?branch=dev)](https://travis-ci.org/mvillalba/caviar) [![GoDoc](https://godoc.org/github.com/mvillalba/caviar?status.png)](https://godoc.org/github.com/mvillalba/caviar)
 
 Caviar is a resource packer for Go. It will essentially pack a bunch of
 resources/assets that you would normally deploy along with your executable into
@@ -55,8 +56,6 @@ keep them there.*
 done. It works on Linux (and probably other UNIX variants), but using it on
 Windows will likely require some work (case-insensitive matches, possible
 hard-coded paths, etc.). You are welcome to submit a patch.*
-
-[![GoDoc](https://godoc.org/github.com/mvillalba/caviar?status.png)](https://godoc.org/github.com/mvillalba/caviar)
 
 
 Contact
